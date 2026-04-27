@@ -23,7 +23,12 @@ Community-maintained Armbian support files for the **DSDevices DSCS9**, an Andro
 | SD card boot | ✅ Working | Requires patched `boot.cmd` — see below |
 | USB | ✅ Working | |
 | HDMI | ✅ Working | |
-| Bluetooth | ❌ Not working | UART comms timeout; RX line may be unconnected |
+| IR Receiver | ✅ Working | NEC protocol, hardware works out of the box. Keymap configuration required for actual use — see IR section below |
+| Bluetooth | ✅ Working | BCM4345C0 fully initialized, firmware loaded, scanning and pairing confirmed |
+| Audio (HDMI) | 🔲 Untested | |
+| Audio (3.5mm / SPDIF) | 🔲 Untested | |
+| GPU (Mali-T820) | 🔲 Untested | |
+| HDMI CEC | 🔲 Untested | Node present in Android DTB |
 | eMMC install | ⚠️ Untested | Android eMMC left intact |
 
 ## Armbian Image
@@ -91,6 +96,35 @@ The AP6255 uses the `brcmfmac` driver. Required firmware files should already be
 - `brcmfmac43455-sdio.bin`
 - `brcmfmac43455-sdio.txt`
 
+## Bluetooth
+
+Bluetooth uses the BCM4345C0 chip (part of the AP6255 combo module) over UART_A (`serial@84c0`, `/dev/ttyAML1`).
+
+The key to getting BT working was enabling CTS/RTS hardware flow control — without it the chip never responds. The DTB node requires:
+
+- Both `uart_a` and `uart_a_cts_rts` pinctrl entries
+- `uart-has-rtscts` property
+- `compatible = "brcm,bcm43438-bt"`
+- `shutdown-gpios` on GPIO 96 (GPIOX_23), active high
+- Firmware: `BCM4345C0.hcd` (already present in Armbian's `/lib/firmware/brcm/`)
+
+This was discovered by cross-referencing with the Phicomm-T1 DTB (`meson-gxm-phicomm-t1.dtb`), which is another S912 board with the same AP6255 chip and working Bluetooth.
+
+## IR Receiver
+
+The IR receiver is functional out of the box via the `meson-ir` driver on GPIOAO_7. To use it:
+
+1. Enable NEC protocol: `sudo ir-keytable -s rc1 -p nec`
+2. Test and capture scancodes: `ir-keytable -t -s rc1`
+3. Create a keymap in `/etc/rc_keymaps/` (TOML format)
+4. Load keymap: `sudo ir-keytable -s rc1 -p nec -c -w /etc/rc_keymaps/your_keymap.toml`
+
+Any NEC protocol remote will work. For function binding (e.g., shutdown on KEY_POWER), use `triggerhappy` or `udev` rules.
+
+## eMMC Partition Map
+
+The Android eMMC uses Amlogic's proprietary EPT format, invisible to standard tools (fdisk/gdisk/parted). Use `ampart` to read it. See `docs/emmc_partitions.md` for the full partition map and mount instructions.
+
 ## Repository Structure
 
 ```
@@ -103,21 +137,21 @@ dsdevices-dscs9-armbian/
 │   ├── dscs9_1g.dtb
 │   ├── dscs9_dtb2.img
 │   └── src/
-│       └── dscs9_1g.dts  # Decompiled DTS source
+│       └── dscs9_1g.dts          # Decompiled DTS source
+├── docs/
+│   ├── hardware.md               # Detailed hardware notes
+│   └── emmc_partitions.md        # Android eMMC partition map
 ├── firmware/                     # Board-specific firmware files (TBD)
-├── boot/                         # Boot configuration templates (TBD)
-└── docs/
-    └── hardware.md               # Detailed hardware notes
+└── boot/                         # Boot configuration templates (TBD)
 ```
 
 ## Known Issues
 
-- **Bluetooth**: `hci_uart_bcm` attaches to the UART but times out on command `0xfc18` (baudrate negotiation). The BT UART RX line may not be connected to the SoC on this board revision. Investigation ongoing.
 - **Boot from SD**: Requires patching `boot.cmd` as described above. The stock script only scans eMMC.
 
 ## Contributing
 
-PRs welcome. If you have a serial/UART console attached and can capture u-boot or kernel output, that would be particularly helpful for debugging Bluetooth.
+PRs welcome. If you have a UART console (GND/RX/TX pads are exposed on the PCB near the AP6255 module) and can capture u-boot or kernel output, that would be helpful for further debugging.
 
 ## License
 
