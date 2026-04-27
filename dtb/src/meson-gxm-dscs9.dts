@@ -1871,6 +1871,11 @@
 			opp-hz = <0x00 0x27bc86aa>;
 			opp-microvolt = <0xe7ef0>;
 		};
+
+		opp-720000000 {
+			opp-hz = <0x00 0x2aea5400>;
+			opp-microvolt = <0xe7ef0>;
+		};
 	};
 
 	analog-amplifier {

@@ -10,25 +10,31 @@ Community-maintained Armbian support files for the **DSDevices DSCS9**, an Andro
 | RAM | 2GB DDR3 |
 | eMMC | 16GB (Android) |
 | WiFi/BT | Ampak AP6255 (BCM43455) — dual-band 802.11ac + BT 4.2 |
-| Ethernet | 100Mbps |
+| Ethernet | Gigabit |
 | Board ID | M12S-V1.1 (2017/03/18) |
 
 ## Status
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Ethernet | ✅ Working | |
+| Ethernet | ✅ Working | Gigabit, RTL8211F PHY |
 | WiFi 2.4GHz | ✅ Working | |
 | WiFi 5GHz | ✅ Working | |
 | SD card boot | ✅ Working | Requires patched `boot.cmd` — see below |
 | USB | ✅ Working | |
-| HDMI | ✅ Working | |
-| IR Receiver | ✅ Working | NEC protocol, hardware works out of the box. Keymap configuration required for actual use — see IR section below |
-| Bluetooth | ✅ Working | BCM4345C0 fully initialized, firmware loaded, scanning and pairing confirmed |
-| Audio (HDMI) | 🔲 Untested | |
-| Audio (3.5mm / SPDIF) | 🔲 Untested | |
-| GPU (Mali-T820) | 🔲 Untested | |
-| HDMI CEC | 🔲 Untested | Node present in Android DTB |
+| HDMI video | ✅ Working | |
+| HDMI audio | ✅ Working | Via Amlogic AIU driver, works out of the box |
+| IR receiver | ✅ Working | NEC protocol via `meson-ir` driver on GPIOAO_7. Keymap config required — see IR section |
+| Bluetooth | ✅ Working | BCM4345C0, firmware loaded, scanning and pairing confirmed |
+| HDMI CEC | ✅ Working | `meson_ao_cec` driver, `/dev/cec0` available |
+| GPU (Mali-T820) | ✅ Working | Panfrost driver, scales 125–720MHz. glmark2 score ~145 |
+| VPU | ✅ Working | Hardware decode: H.264, H.265, VP9 via `meson-vdec` |
+| Hardware crypto | ✅ Working | AES-ECB, AES-CBC hardware accelerated via `gxl-crypto` |
+| vRTC | ✅ Working | Wall-power only, no battery backup. Use NTP for accurate time |
+| Audio 3.5mm | 🔲 Untested | T9015 DAC present, output only (no microphone) |
+| Audio SPDIF | 🔲 Untested | Node present in DTB |
+| USB OTG | 🔲 Untested | Hardware supports it, needs testing with USB-A to USB-A cable |
+| HYM8563 RTC | 🔲 No battery | Chip may be present, battery holder not populated |
 | eMMC install | ⚠️ Untested | Android eMMC left intact |
 
 ## Armbian Image
@@ -105,53 +111,112 @@ The key to getting BT working was enabling CTS/RTS hardware flow control — wit
 - Both `uart_a` and `uart_a_cts_rts` pinctrl entries
 - `uart-has-rtscts` property
 - `compatible = "brcm,bcm43438-bt"`
-- `shutdown-gpios` on GPIO 96 (GPIOX_23), active high
+- `shutdown-gpios` on GPIO 96 (periphs bank), active high
 - Firmware: `BCM4345C0.hcd` (already present in Armbian's `/lib/firmware/brcm/`)
 
 This was discovered by cross-referencing with the Phicomm-T1 DTB (`meson-gxm-phicomm-t1.dtb`), which is another S912 board with the same AP6255 chip and working Bluetooth.
 
 ## IR Receiver
 
-The IR receiver is functional out of the box via the `meson-ir` driver on GPIOAO_7. To use it:
+The IR receiver is functional out of the box via the `meson-ir` driver on GPIOAO_7. The driver initializes as `rc1` and supports multiple protocols — NEC must be explicitly enabled.
 
-1. Enable NEC protocol: `sudo ir-keytable -s rc1 -p nec`
-2. Test and capture scancodes: `ir-keytable -t -s rc1`
-3. Create a keymap in `/etc/rc_keymaps/` (TOML format)
-4. Load keymap: `sudo ir-keytable -s rc1 -p nec -c -w /etc/rc_keymaps/your_keymap.toml`
+To use it:
+
+```bash
+# Enable NEC protocol
+sudo ir-keytable -s rc1 -p nec
+
+# Test and capture scancodes from your remote
+ir-keytable -t -s rc1
+
+# Create a keymap file at /etc/rc_keymaps/your_keymap.toml
+# Load keymap
+sudo ir-keytable -s rc1 -p nec -c -w /etc/rc_keymaps/your_keymap.toml
+```
 
 Any NEC protocol remote will work. For function binding (e.g., shutdown on KEY_POWER), use `triggerhappy` or `udev` rules.
 
+## HDMI CEC
+
+CEC works out of the box via the `meson_ao_cec` driver. No configuration needed.
+
+```bash
+# Install cec-utils
+sudo apt install cec-utils
+
+# List CEC devices on the bus
+echo "scan" | cec-client -s -d 1
+
+# Turn TV on
+echo "on 0" | cec-client -s -d 1
+
+# Set this device as active source (switch TV input)
+echo "as" | cec-client -s -d 1
+```
+
+## GPU
+
+The Mali-T820 MP3 GPU is supported by the open-source **Panfrost** driver, already loaded in the Armbian kernel. Dynamic frequency scaling works correctly — the GPU scales from 125MHz up to 720MHz under load.
+
+```
+panfrost d00c0000.gpu: mali-t820 id 0x820
+[drm] Initialized panfrost 1.2.0 for d00c0000.gpu on minor 1
+```
+
+Available frequencies: 125, 250, 285, 400, 500, 666, 720 MHz
+
+**glmark2-es2-drm score: ~145**
+
+Note: The S912 datasheet lists 666MHz as the rated GPU frequency. 720MHz is present in the stock Android DTB and has been confirmed stable at the same voltage (950mV).
+
+## VPU
+
+Hardware video decoding is handled by `meson-vdec` and exposed as `/dev/video0`. Supported codecs:
+
+- H.264
+- H.265 (HEVC)
+- VP9
+
+Video playback does not consume GPU or CPU resources.
+
+## Hardware Crypto
+
+The `gxl-crypto` engine provides hardware-accelerated AES-ECB and AES-CBC. Useful for VPN (OpenVPN uses AES-CBC), HTTPS, and disk encryption workloads.
+
 ## eMMC Partition Map
 
-The Android eMMC uses Amlogic's proprietary EPT format, invisible to standard tools (fdisk/gdisk/parted). Use `ampart` to read it. See `docs/emmc_partitions.md` for the full partition map and mount instructions.
+The Android eMMC uses Amlogic's proprietary EPT format, invisible to standard tools (fdisk/gdisk/parted). Use `ampart` to read it. See `docs/dscs9_emmc_partitions.md` for the full partition map and mount instructions.
 
 ## Repository Structure
 
 ```
 dsdevices-dscs9-armbian/
 ├── dtb/
-│   ├── meson-gxm-dscs9.dtb      # Ready-to-use compiled DTB
+│   ├── meson-gxm-dscs9.dtb          # Ready-to-use compiled DTB
 │   └── src/
-│       └── meson-gxm-dscs9.dts  # Decompiled DTS source
-├── android-dtb/                  # DTB extracted from stock Android firmware
+│       └── meson-gxm-dscs9.dts      # Decompiled DTS source
+├── android-dtb/                      # DTB extracted from stock Android firmware
 │   ├── dscs9_1g.dtb
 │   ├── dscs9_dtb2.img
 │   └── src/
-│       └── dscs9_1g.dts          # Decompiled DTS source
+│       └── dscs9_1g.dts              # Decompiled DTS source
 ├── docs/
-│   ├── hardware.md               # Detailed hardware notes
-│   └── emmc_partitions.md        # Android eMMC partition map
-├── firmware/                     # Board-specific firmware files (TBD)
-└── boot/                         # Boot configuration templates (TBD)
+│   ├── dscs9_bluetooth_reference.md  # BT investigation notes and solution
+│   └── dscs9_emmc_partitions.md      # Android eMMC partition map
+├── firmware/                         # Board-specific firmware files (TBD)
+└── boot/                             # Boot configuration templates (TBD)
 ```
 
-## Known Issues
+## Known Issues / TODO
 
-- **Boot from SD**: Requires patching `boot.cmd` as described above. The stock script only scans eMMC.
+- **Audio 3.5mm/SPDIF**: T9015 DAC node present, untested — 3.5mm is output only, no microphone input.
+- **USB OTG**: Hardware supports it, needs testing with USB-A to USB-A cable.
+- **HYM8563 RTC**: External I2C RTC chip likely present but battery holder not populated. DTB node (i2c-gpio bit-bang) not yet added.
+- **Boot from SD**: Requires patching `boot.cmd` as described above.
 
 ## Contributing
 
-PRs welcome. If you have a UART console (GND/RX/TX pads are exposed on the PCB near the AP6255 module) and can capture u-boot or kernel output, that would be helpful for further debugging.
+PRs welcome. Hardware notes: GND/RX/TX debug pads are exposed on the PCB near the AP6255 module — a USB-UART adapter soldered here would allow u-boot and kernel console capture, useful for further debugging.
 
 ## License
 
