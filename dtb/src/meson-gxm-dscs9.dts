@@ -12,6 +12,7 @@
 		mmc1 = "/soc/apb@d0000000/mmc@72000";
 		mmc2 = "/soc/apb@d0000000/mmc@74000";
 		serial0 = "/soc/bus@c8100000/serial@4c0";
+		serial1 = "/soc/bus@c1100000/serial@84c0";
 		ethernet0 = "/soc/ethernet@c9410000";
 	};
 
@@ -461,11 +462,20 @@
 				compatible = "amlogic,meson-gx-uart";
 				reg = <0x00 0x84c0 0x00 0x18>;
 				interrupts = <0x00 0x1a 0x01>;
-				status = "disabled";
+				status = "okay";
 				fifo-size = <0x80>;
-				clocks = <0x17 0x03 0x1a 0x17>;
+				clocks = <0x17 0x1a 0x03 0x17>;
 				clock-names = "xtal", "pclk", "baud";
+				pinctrl-0 = <0x82 0x83>;
+				pinctrl-names = "default";
+				uart-has-rtscts;
 				phandle = <0x57>;
+
+				bluetooth {
+					compatible = "brcm,bcm43438-bt";
+					shutdown-gpios = <0x24 0x60 0x00>;
+					max-speed = <0x1e8480>;
+				};
 			};
 
 			serial@84dc {
