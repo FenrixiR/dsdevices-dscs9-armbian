@@ -35,7 +35,7 @@ Community-maintained Armbian support files for the **DSDevices DSCS9**, an Andro
 | Audio SPDIF | 🔲 Untested | Node present in DTB |
 | USB OTG | 🔲 Untested | Hardware supports it, needs testing with USB-A to USB-A cable |
 | HYM8563 RTC | 🔲 No battery | Chip may be present, battery holder not populated |
-| eMMC install | ⚠️ Untested | Android eMMC left intact |
+| eMMC install | ✅ Working | Standard 'armbian-install' works flawlessly |
 
 ## Armbian Image
 
